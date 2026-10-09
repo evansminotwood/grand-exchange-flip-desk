@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GE Flip Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a trading desk. Control strip on top, ranked board below, item ledger slides in on the right (stacks under on phones). */
+:root{
+  --bg:#eef0f2; --panel:#ffffff; --sunk:#e3e6ea; --line:#cdd2d9;
+  --fg:#1d2430; --muted:#5d6878; --gold:#a8790f; --gold-soft:#f3e5bf;
+  --good:#1f7a3f; --bad:#b0352b; --warn:#9a6a00;
+  --coin-y:#a8790f; --coin-w:#1d2430; --coin-g:#1f7a3f;
+  --f-display:"Cinzel",Georgia,serif;
+  --f-ui:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-num:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#14181e; --panel:#1b2028; --sunk:#232a34; --line:#323b48;
+  --fg:#e6e9ee; --muted:#93a0b2; --gold:#e3b341; --gold-soft:#3a3120;
+  --good:#5ccf7e; --bad:#ef7468; --warn:#e3b341;
+  --coin-y:#ffd94a; --coin-w:#f2f2f2; --coin-g:#4ce07a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#14181e; --panel:#1b2028; --sunk:#232a34; --line:#323b48;
+  --fg:#e6e9ee; --muted:#93a0b2; --gold:#e3b341; --gold-soft:#3a3120;
+  --good:#5ccf7e; --bad:#ef7468; --warn:#e3b341;
+  --coin-y:#ffd94a; --coin-w:#f2f2f2; --coin-g:#4ce07a; color-scheme:dark}
+
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.45 var(--f-ui)}
+.wrap{max-width:1400px;margin:0 auto;padding-inline:16px;padding-block:18px 40px;display:grid;gap:16px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 18px;justify-content:space-between}
+h1{font:700 26px/1.1 var(--f-display);letter-spacing:.02em;margin:0;color:var(--gold)}
+h1 small{font:500 13px var(--f-ui);color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-left:10px}
+.status{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:13px;flex-wrap:wrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}
+.dot.live{background:var(--good)} .dot.err{background:var(--bad)} .dot.demo{background:var(--warn)}
+button{font:500 14px var(--f-ui);background:var(--sunk);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer}
+button:hover{border-color:var(--gold)}
+button.primary{background:var(--gold);color:var(--bg);border-color:var(--gold)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+.banner{padding:10px 14px;border-radius:6px;background:var(--gold-soft);border:1px solid var(--gold);font-size:14px}
+.banner[hidden]{display:none}
+
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+.controls label{display:grid;gap:3px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.controls input,.controls select{font:15px var(--f-ui);background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:6px 8px;width:100%;min-width:0}
+.controls .chk{display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:14px;color:var(--fg)}
+.controls .chk input{width:auto}
+
+.presets{display:flex;gap:8px;flex-wrap:wrap}
+.presets button[aria-pressed="true"]{background:var(--gold);color:var(--bg);border-color:var(--gold)}
+
+.main{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px;align-items:start}
+@media (max-width:1050px){.main{grid-template-columns:minmax(0,1fr)}}
+
+.board{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-width:0}
+.board-head{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);gap:10px;flex-wrap:wrap}
+.board-head h2{font:600 15px var(--f-ui);margin:0;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.tabs{display:flex;gap:6px}
+.tabs button[aria-selected="true"]{border-color:var(--gold);color:var(--gold)}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{padding:7px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{font:600 11px var(--f-ui);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);cursor:pointer;user-select:none;position:sticky;top:0;background:var(--panel)}
+th.sorted{color:var(--gold)}
+th:first-child,td:first-child{text-align:left}
+td{font:13px var(--f-num)}
+td.name{font:500 14px var(--f-ui);display:flex;align-items:center;gap:8px;max-width:260px}
+td.name span{overflow:hidden;text-overflow:ellipsis}
+td.name img{width:22px;height:22px;object-fit:contain;flex:none}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--sunk)}
+tbody tr.sel{background:var(--gold-soft)}
+.mem{font:600 9px var(--f-ui);color:var(--gold);border:1px solid var(--gold);border-radius:3px;padding:0 3px;flex:none}
+.pos{color:var(--good)} .neg{color:var(--bad)}
+.stale{color:var(--warn)}
+.c-y{color:var(--coin-y)} .c-w{color:var(--coin-w)} .c-g{color:var(--coin-g)}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+
+/* phone: rows become compact cards */
+@media (max-width:640px){
+  thead{display:none}
+  table,tbody,tr,td{display:block;width:100%}
+  tbody tr{display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px 10px;padding:10px 12px;border-bottom:1px solid var(--line)}
+  td{border:0;padding:0;text-align:left}
+  td.name{grid-column:1/-1;max-width:none;margin-bottom:4px}
+  td[data-k]::before{content:attr(data-k);display:block;font:600 10px var(--f-ui);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+}
+
+.ledger{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;display:grid;gap:14px;position:sticky;top:12px;min-width:0}
+@media (max-width:1050px){.ledger{position:static}}
+.ledger h3{font:700 19px var(--f-display);margin:0;display:flex;gap:10px;align-items:center}
+.ledger h3 img{width:30px;height:30px;object-fit:contain}
+.examine{color:var(--muted);font-style:italic;font-size:14px;margin:0}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kv div{background:var(--sunk);border-radius:6px;padding:7px 10px}
+.kv b{display:block;font:600 10px var(--f-ui);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.kv span{font:500 15px var(--f-num)}
+.chart{width:100%;height:auto;display:block}
+.chart text{font:10px var(--f-num);fill:var(--muted)}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:3px;vertical-align:middle;margin-right:5px}
+.calc{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.calc label{display:grid;gap:3px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.calc input{font:14px var(--f-num);background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:6px 8px;width:100%;min-width:0}
+.result{font:500 14px var(--f-num);background:var(--sunk);border-radius:6px;padding:10px;display:grid;gap:3px}
+.row{display:flex;justify-content:space-between;gap:10px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.links a{color:var(--gold)}
+
+.log{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-width:0}
+.log .sum{display:flex;gap:20px;flex-wrap:wrap;padding:10px 14px;font:14px var(--f-num)}
+.note{color:var(--muted);font-size:13px;max-width:75ch}
+.overview{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-width:0}
+.ovbars{display:grid;gap:2px;padding:8px 10px 12px}
+.ov{display:grid;grid-template-columns:minmax(0,230px) minmax(0,1fr) 72px;gap:12px;align-items:center;padding:5px 6px;border-radius:5px;background:none;border:0;text-align:left;color:var(--fg);font:inherit;width:100%}
+.ov:hover{background:var(--sunk)}
+.ov .nm{min-width:0;display:grid}
+.ov .nm b{font:500 14px var(--f-ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ov .nm small{font:12px var(--f-num);color:var(--muted)}
+.ov .track{height:12px;background:var(--sunk);border-radius:3px;overflow:hidden}
+.ov .fill{display:block;height:100%;background:var(--gold)}
+.ov .val{font:500 13px var(--f-num);text-align:right}
+@media (max-width:640px){.ov{grid-template-columns:minmax(0,1fr) 64px}.ov .track{grid-column:1/-1;grid-row:2}}
+.bv{color:var(--good)} .sv{color:var(--gold)}
+.readout{font:12px var(--f-num);color:var(--muted);min-height:2.8em;display:flex;flex-wrap:wrap;gap:2px 12px;align-content:flex-start}
+.readout .hint{font:12px var(--f-ui)}
+.chart{touch-action:pan-y}
+.chart .ptitle{font:600 9px var(--f-ui);letter-spacing:.08em;fill:var(--muted)}
+.analysis{display:grid;gap:10px}
+.analysis ul{margin:0;padding-left:18px;display:grid;gap:6px;font-size:14px}
+.verdict{display:inline-block;font:600 12px var(--f-ui);text-transform:uppercase;letter-spacing:.06em;padding:3px 10px;border-radius:999px;border:1px solid currentColor}
+.verdict.good{color:var(--good)} .verdict.warn{color:var(--warn)} .verdict.bad{color:var(--bad)}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>GE Flip Desk <small>Old School RuneScape</small></h1>
+    <div class="status">
+      <span class="dot" id="dot"></span><span id="statusText">Loading prices…</span>
+      <label class="chk" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="auto" checked> Auto-refresh 60s</label>
+      <button id="refresh">Refresh</button>
+    </div>
+  </header>
+
+  <div class="banner" id="demoBanner" hidden>
+    Live prices could not load here, so the board shows <b>example items with made-up prices</b>. Open this file in a desktop browser (Chrome, Firefox, Safari) and it pulls real data from the OSRS Wiki price API.
+  </div>
+
+  <section class="controls" aria-label="Filters">
+    <label>Search<input id="q" type="search" placeholder="e.g. rune, bones"></label>
+    <label>Cash stack (gp)<input id="cash" inputmode="numeric" value="10m"></label>
+    <label>Min margin after tax<input id="minMargin" inputmode="numeric" value="100"></label>
+    <label>Min ROI %<input id="minRoi" type="number" step="0.1" value="1"></label>
+    <label>Min hourly volume<input id="minVol" type="number" value="50"></label>
+    <label>Max price age (min)<input id="maxAge" type="number" value="30"></label>
+    <label>Fill share of 4h volume %<input id="share" type="number" value="25" min="1" max="100"></label>
+    <label>Members<select id="members"><option value="all">All items</option><option value="f2p">F2P only</option></select></label>
+    <label class="chk"><input type="checkbox" id="hideStale" checked> Hide stale prices</label>
+  </section>
+
+  <div class="presets" role="group" aria-label="Ranking">
+    <button data-sort="score" aria-pressed="true">Best profit per limit</button>
+    <button data-sort="roi" aria-pressed="false">Highest ROI</button>
+    <button data-sort="vol" aria-pressed="false">Most traded</button>
+    <button data-sort="margin" aria-pressed="false">Biggest margin</button>
+  </div>
+
+  <section class="overview" aria-label="Top flips chart">
+    <div class="board-head"><h2>Top 10 by profit per 4h</h2><span class="note">Tap a bar to open the item</span></div>
+    <div class="ovbars" id="ovBars"></div>
+  </section>
+
+  <div class="main">
+    <section class="board">
+      <div class="board-head">
+        <h2 id="boardTitle">Ranked flips</h2>
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" data-view="all">Board</button>
+          <button role="tab" aria-selected="false" data-view="watch">Watchlist <span id="watchCount"></span></button>
+        </div>
+      </div>
+      <div class="scroll">
+        <table>
+          <thead><tr>
+            <th data-col="name">Item</th>
+            <th data-col="buy">Buy at</th>
+            <th data-col="sell">Sell at</th>
+            <th data-col="tax">Tax</th>
+            <th data-col="margin">Margin</th>
+            <th data-col="roi">ROI</th>
+            <th data-col="vol">Vol/hr</th>
+            <th data-col="limit">Limit</th>
+            <th data-col="qty">Can buy</th>
+            <th data-col="score">Profit/4h</th>
+            <th data-col="age">Age</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="empty" hidden>No items match these filters. Loosen the margin, ROI or volume floors.</div>
+    </section>
+
+    <aside class="ledger" id="ledger" aria-live="polite">
+      <p class="note">Pick an item on the board to see its price history, tax breakdown and a flip calculator.</p>
+    </aside>
+  </div>
+
+  <section class="log">
+    <div class="board-head"><h2>Flip log</h2><button id="clearLog">Clear log</button></div>
+    <div class="sum" id="logSum"></div>
+    <div class="scroll"><table><thead><tr><th>Item</th><th>Qty</th><th>Bought</th><th>Sold</th><th>Tax</th><th>Profit</th><th>When</th><th></th></tr></thead><tbody id="logRows"></tbody></table></div>
+  </section>
+
+  <p class="note">
+    Buy at = the latest instant-sell price (what you can usually buy for). Sell at = the latest instant-buy price.
+    Tax is the GE's 2% sell tax, rounded down, capped at 5m per item, and not charged on items under 50 gp or Old school bonds.
+    Profit/4h assumes you fill the smaller of the buy limit, your cash stack, or your chosen share of four hours of volume.
+    Prices from the <a href="https://prices.runescape.wiki" target="_blank" rel="noopener" style="color:var(--gold)">OSRS Wiki real-time prices API</a>.
+  </p>
+</div>
+
+<script>
+const API = "https://prices.runescape.wiki/api/v1/osrs";
+const TAX_RATE = 0.02, TAX_CAP = 5_000_000, TAX_FLOOR = 50;
+const TAX_EXEMPT = new Set([13190]); // Old school bond
+const $ = s => document.querySelector(s);
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem("gefd:"+k); return v ? JSON.parse(v) : d; }catch{ return d; } },
+  set(k, v){ try{ localStorage.setItem("gefd:"+k, JSON.stringify(v)); }catch{} }
+};
+
+let mapping = {}, items = [], selected = null, sortKey = "score", sortDir = -1, view = "all", demo = false;
+let watch = new Set(store.get("watch", []));
+let log = store.get("log", []);
+let seriesStep = "5m";
+
+/* ---------- helpers ---------- */
+function tax(id, price){
+  if (TAX_EXEMPT.has(id) || price < TAX_FLOOR) return 0;
+  return Math.min(Math.floor(price * TAX_RATE), TAX_CAP);
+}
+function parseGp(s){
+  s = String(s).trim().toLowerCase().replace(/,/g, "");
+  const m = s.match(/^([\d.]+)\s*([kmb]?)$/); if (!m) return NaN;
+  return Math.round(parseFloat(m[1]) * ({k:1e3, m:1e6, b:1e9}[m[2]] || 1));
+}
+function gp(n){
+  if (n == null || isNaN(n)) return "–";
+  const a = Math.abs(n), s = n < 0 ? "-" : "";
+  if (a >= 1e9) return s + (a/1e9).toFixed(2).replace(/\.?0+$/, "") + "b";
+  if (a >= 1e7) return s + (a/1e6).toFixed(1).replace(/\.0$/, "") + "m";
+  if (a >= 1e5) return s + Math.round(a/1e3) + "k";
+  return n.toLocaleString();
+}
+// OSRS stack colours: yellow under 100k, white to 10m, green above
+function coinClass(n){ const a = Math.abs(n); return a >= 1e7 ? "c-g" : a >= 1e5 ? "c-w" : "c-y"; }
+function ago(sec){ if (sec == null) return "–"; const m = Math.round(sec/60); return m < 60 ? m + "m" : Math.round(m/60) + "h"; }
+function icon(m){ return m && m.icon ? "https://oldschool.runescape.wiki/images/" + encodeURIComponent(m.icon.replace(/ /g, "_")) : ""; }
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+/* ---------- data ---------- */
+async function getJSON(path){
+  const r = await fetch(API + path, {cache: "no-store"});
+  if (!r.ok) throw new Error(path + " " + r.status);
+  return r.json();
+}
+async function load(){
+  setStatus("", "Loading prices…");
+  try{
+    const needMap = !Object.keys(mapping).length;
+    const [map, latest, hour] = await Promise.all([
+      needMap ? getJSON("/mapping") : Promise.resolve(null),
+      getJSON("/latest"), getJSON("/1h")
+    ]);
+    if (map) mapping = Object.fromEntries(map.map(m => [m.id, m]));
+    build(latest.data, hour.data);
+    demo = false; $("#demoBanner").hidden = true;
+    setStatus("live", "Live · updated " + new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}));
+  }catch(e){
+    if (!items.length){ loadDemo(); }
+    else setStatus("err", "Refresh failed, showing last prices");
+  }
+  render();
+}
+function build(latest, hour){
+  const now = Date.now()/1000;
+  items = [];
+  for (const id in latest){
+    const m = mapping[id]; if (!m) continue;
+    const L = latest[id], H = hour[id] || {};
+    if (!L.high || !L.low) continue;
+    items.push(makeRow(+id, m, L.low, L.high,
+      (H.highPriceVolume||0) + (H.lowPriceVolume||0),
+      now - Math.min(L.highTime||0, L.lowTime||0)));
+  }
+}
+function makeRow(id, m, buy, sell, vol, age){
+  const t = tax(id, sell);
+  return {id, name:m.name, members:m.members, limit:m.limit || null, highalch:m.highalch, examine:m.examine, m,
+          buy, sell, tax:t, margin: sell - t - buy, roi: (sell - t - buy) / buy * 100, vol, age};
+}
+function loadDemo(){
+  demo = true; $("#demoBanner").hidden = false;
+  setStatus("demo", "Example data (not live)");
+  const ex = [ // made-up example prices, for layout only
+    [2,"Cannonball (example)",false,11000,180,186,9000],[560,"Death rune (example)",false,25000,180,186,14000],
+    [565,"Blood rune (example)",true,25000,300,310,8000],[1515,"Yew logs (example)",false,25000,260,272,6000],
+    [453,"Coal (example)",false,13000,140,146,7000],[2434,"Prayer potion(4) (example)",true,2000,9800,10150,1500],
+    [11286,"Draconic visage (example)",true,5,3600000,3740000,4],[12934,"Zulrah's scales (example)",true,30000,150,157,20000],
+    [536,"Dragon bones (example)",true,7500,2350,2440,3500],[3024,"Super restore(4) (example)",true,2000,9100,9450,1300],
+    [11832,"Bandos chestplate (example)",true,8,16000000,16450000,6],[13190,"Old school bond (example)",false,100,8800000,9050000,90]
+  ];
+  items = ex.map(([id,name,members,limit,buy,sell,vol]) => {
+    const m = {id,name,members,limit,highalch:Math.round(buy*.4),examine:"Example row with made-up prices.",icon:""};
+    mapping[id] = mapping[id] || m; return makeRow(id, m, buy, sell, vol, 60*(5+id%20));
+  });
+}
+function setStatus(cls, text){ $("#dot").className = "dot " + cls; $("#statusText").textContent = text; }
+
+/* ---------- filtering & scoring ---------- */
+function opts(){
+  return {q:$("#q").value.trim().toLowerCase(), cash:parseGp($("#cash").value) || Infinity,
+    minMargin:parseGp($("#minMargin").value) || 0, minRoi:parseFloat($("#minRoi").value) || 0,
+    minVol:parseFloat($("#minVol").value) || 0, maxAge:(parseFloat($("#maxAge").value) || 1e9) * 60,
+    share:Math.min(100, Math.max(1, parseFloat($("#share").value) || 25)) / 100,
+    f2p:$("#members").value === "f2p", hideStale:$("#hideStale").checked};
+}
+function score(r, o){
+  const byVol = Math.floor(r.vol * 4 * o.share);
+  const byCash = Math.floor(o.cash / r.buy);
+  const qty = Math.max(0, Math.min(r.limit ?? Infinity, byVol, byCash));
+  return {...r, qty, score: qty * r.margin};
+}
+function visible(){
+  const o = opts();
+  let list = view === "watch" ? items.filter(r => watch.has(r.id)) : items;
+  list = list.map(r => score(r, o));
+  if (view === "all") list = list.filter(r =>
+    r.margin >= o.minMargin && r.roi >= o.minRoi && r.vol >= o.minVol && r.qty > 0 &&
+    (!o.hideStale || r.age <= o.maxAge));
+  if (o.q) list = list.filter(r => r.name.toLowerCase().includes(o.q));
+  if (o.f2p) list = list.filter(r => !r.members);
+  list.sort((a,b) => {
+    const x = a[sortKey], y = b[sortKey];
+    const cmp = typeof x === "string" ? x.localeCompare(y) : (x ?? -Infinity) - (y ?? -Infinity);
+    return sortDir === -1 ? -cmp : cmp;
+  });
+  return list.slice(0, 200);
+}
+
+/* ---------- render ---------- */
+function render(){
+  const list = visible(), o = opts();
+  $("#watchCount").textContent = watch.size ? "(" + watch.size + ")" : "";
+  document.querySelectorAll("th").forEach(th => th.classList.toggle("sorted", th.dataset.col === sortKey));
+  $("#rows").innerHTML = list.map(r => `
+    <tr data-id="${r.id}" class="${selected===r.id?"sel":""}" tabindex="0">
+      <td class="name">${icon(r.m)?`<img src="${icon(r.m)}" alt="" loading="lazy">`:""}<span>${esc(r.name)}</span>${r.members?'<i class="mem">P2P</i>':""}</td>
+      <td data-k="Buy at">${gp(r.buy)}</td>
+      <td data-k="Sell at">${gp(r.sell)}</td>
+      <td data-k="Tax">${gp(r.tax)}</td>
+      <td data-k="Margin" class="${r.margin>0?"pos":"neg"}">${gp(r.margin)}</td>
+      <td data-k="ROI">${r.roi.toFixed(2)}%</td>
+      <td data-k="Vol/hr">${gp(r.vol)}</td>
+      <td data-k="Limit">${r.limit?gp(r.limit):"?"}</td>
+      <td data-k="Can buy">${gp(r.qty)}</td>
+      <td data-k="Profit/4h" class="${coinClass(r.score)}">${gp(r.score)}</td>
+      <td data-k="Age" class="${r.age>o.maxAge?"stale":""}">${ago(r.age)}</td>
+    </tr>`).join("");
+  $("#empty").hidden = list.length > 0;
+  $("#empty").textContent = view === "watch" ? "Your watchlist is empty. Open an item and press Watch." : "No items match these filters. Loosen the margin, ROI or volume floors.";
+  $("#boardTitle").textContent = view === "watch" ? "Watchlist" : `Ranked flips · ${list.length}${list.length===200?"+":""}`;
+  renderOverview(list);
+  if (selected) renderLedger(false);
+  renderLog();
+}
+
+async function renderLedger(fetchSeries = true){
+  const r0 = items.find(i => i.id === selected); if (!r0) return;
+  const r = score(r0, opts());
+  const el = $("#ledger");
+  const prevQty = el.querySelector("#cQty")?.value, prevBuy = el.querySelector("#cBuy")?.value, prevSell = el.querySelector("#cSell")?.value;
+  const sameItem = el.dataset.id == r.id;
+  el.dataset.id = r.id;
+  const alchGap = r.highalch ? r.highalch - r.buy : null;
+  el.innerHTML = `
+    <h3>${icon(r.m)?`<img src="${icon(r.m)}" alt="">`:""}${esc(r.name)}</h3>
+    <p class="examine">${esc(r.examine || "")}</p>
+    <div class="kv">
+      <div><b>Buy at</b><span>${r.buy.toLocaleString()}</span></div>
+      <div><b>Sell at</b><span>${r.sell.toLocaleString()}</span></div>
+      <div><b>Tax per item</b><span>${r.tax.toLocaleString()}</span></div>
+      <div><b>Margin per item</b><span class="${r.margin>0?"pos":"neg"}">${r.margin.toLocaleString()}</span></div>
+      <div><b>Buy limit / 4h</b><span>${r.limit?r.limit.toLocaleString():"unknown"}</span></div>
+      <div><b>Volume last hour</b><span>${r.vol.toLocaleString()}</span></div>
+      <div><b>High alch</b><span>${r.highalch?r.highalch.toLocaleString():"–"}</span></div>
+      <div><b>Alch floor gap</b><span class="${alchGap>0?"pos":""}">${alchGap==null?"–":gp(alchGap)}</span></div>
+    </div>
+    <div class="board-head" style="padding:0;border:0">
+      <b style="font:600 12px var(--f-ui);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)">Buy &amp; sell history</b>
+      <div class="tabs"><button data-step="5m" aria-selected="${seriesStep==="5m"}">~30h</button><button data-step="1h" aria-selected="${seriesStep==="1h"}">~2 wks</button><button data-step="6h" aria-selected="${seriesStep==="6h"}">~3 mo</button></div>
+    </div>
+    <div class="readout" id="readout">${nowReadout(r)}</div>
+    <div id="chart"><p class="note">Loading history…</p></div>
+    <div class="legend"><span><i style="background:var(--good)"></i>Buy price</span><span><i style="background:var(--gold)"></i>Sell price</span><span><i style="border-top:2px dashed var(--muted);height:0"></i>Now</span></div>
+    <div>
+      <b style="font:600 12px var(--f-ui);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)">Analysis</b>
+      <div class="analysis" id="analysis" style="margin-top:6px"><p class="note">Reading the chart…</p></div>
+    </div>
+
+    <div>
+      <b style="font:600 12px var(--f-ui);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)">Flip calculator</b>
+      <div class="calc" style="margin-top:6px">
+        <label>Buy price<input id="cBuy" inputmode="numeric" value="${sameItem&&prevBuy?prevBuy:r.buy+1}"></label>
+        <label>Sell price<input id="cSell" inputmode="numeric" value="${sameItem&&prevSell?prevSell:Math.max(r.sell-1,1)}"></label>
+        <label>Quantity<input id="cQty" inputmode="numeric" value="${sameItem&&prevQty?prevQty:(r.qty||1)}"></label>
+        <label>&nbsp;<button id="logIt" class="primary">Log this flip</button></label>
+      </div>
+      <div class="result" id="cOut" style="margin-top:8px"></div>
+    </div>
+    <div class="actions">
+      <button id="watchBtn">${watch.has(r.id)?"Unwatch":"Watch"}</button>
+      <span class="links"><a href="https://prices.runescape.wiki/osrs/item/${r.id}" target="_blank" rel="noopener">Wiki prices</a> · <a href="https://oldschool.runescape.wiki/w/Special:Lookup?type=item&id=${r.id}" target="_blank" rel="noopener">Wiki page</a></span>
+    </div>`;
+  calc();
+  el.querySelectorAll("#cBuy,#cSell,#cQty").forEach(i => i.addEventListener("input", calc));
+  el.querySelector("#logIt").onclick = logFlip;
+  el.querySelector("#watchBtn").onclick = () => { watch.has(r.id) ? watch.delete(r.id) : watch.add(r.id); store.set("watch", [...watch]); render(); };
+  el.querySelectorAll("[data-step]").forEach(b => b.onclick = () => { seriesStep = b.dataset.step; renderLedger(); });
+  drawSeries(r.id);
+}
+
+function calc(){
+  const buy = parseGp($("#cBuy").value), sell = parseGp($("#cSell").value), qty = parseGp($("#cQty").value) || 0;
+  const r = items.find(i => i.id === selected); if (!r || isNaN(buy) || isNaN(sell)) return;
+  const t = tax(r.id, sell), per = sell - t - buy, total = per * qty;
+  const lim = r.limit && qty > r.limit ? `<div class="row stale"><span>Over the 4h buy limit</span><span>${r.limit.toLocaleString()}</span></div>` : "";
+  $("#cOut").innerHTML = `
+    <div class="row"><span>Cost</span><span>${(buy*qty).toLocaleString()}</span></div>
+    <div class="row"><span>Tax total</span><span>${(t*qty).toLocaleString()}</span></div>
+    <div class="row"><span>Profit</span><span class="${total>=0?"pos":"neg"}">${total.toLocaleString()} gp</span></div>
+    <div class="row"><span>ROI</span><span>${buy?(per/buy*100).toFixed(2):"–"}%</span></div>
+    <div class="row"><span>Break-even sell</span><span>${breakEven(r.id, buy).toLocaleString()}</span></div>${lim}`;
+}
+function breakEven(id, buy){ let p = Math.max(buy, Math.min(Math.ceil(buy / (1 - TAX_RATE)), buy + TAX_CAP) - 3); while (p - tax(id, p) < buy) p++; return p; }
+
+const lastSeries = {};
+async function drawSeries(id){
+  const key = id + seriesStep, box = () => $("#chart");
+  try{
+    const c = lastSeries[key];
+    if (!c || Date.now() - c.at > 300000){
+      if (demo) throw new Error("demo");
+      const j = await getJSON(`/timeseries?timestep=${seriesStep}&id=${id}`);
+      lastSeries[key] = {data: j.data, at: Date.now()};
+    }
+    const r0 = items.find(i => i.id === id);
+    if (selected !== id || !box() || !r0) return;
+    const r = score(r0, opts()), data = lastSeries[key].data;
+    box().innerHTML = chartSVG(data, r);
+    hookHover(data, r);
+    $("#analysis").innerHTML = analyze(data, r);
+  }catch{
+    if (box()) box().innerHTML = `<p class="note">${demo ? "Charts and analysis need live data." : "Could not load price history."}</p>`;
+    if ($("#analysis")) $("#analysis").innerHTML = "";
+  }
+}
+
+/* stats */
+const avg = a => a.reduce((s, v) => s + v, 0) / a.length;
+const sd = a => { const m = avg(a); return Math.sqrt(avg(a.map(v => (v - m) ** 2))); };
+function pct(a, p){ const s = [...a].sort((x, y) => x - y), i = (s.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i); return s[lo] + (s[hi] - s[lo]) * (i - lo); }
+const mg = (id, d) => d.avgHighPrice - tax(id, d.avgHighPrice) - d.avgLowPrice;
+const vol = d => (d.highPriceVolume || 0) + (d.lowPriceVolume || 0);
+
+/* three stacked panels on one time axis: price, after-tax margin, volume */
+const CH = {W:380, L:56, R:10, P1:[10,150], P2:[178,236], P3:[262,300], H:320};
+function chartSVG(data, r){
+  const pts = data.filter(d => d.avgHighPrice || d.avgLowPrice);
+  if (pts.length < 2) return `<p class="note">Not enough trades in this window to chart.</p>`;
+  const {W, L, R, P1, P2, P3, H} = CH;
+  const vals = pts.flatMap(d => [d.avgHighPrice, d.avgLowPrice]).filter(Boolean).concat([r.buy, r.sell]);
+  let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * .06 || hi * .01; lo -= pad; hi += pad;
+  const t0 = pts[0].timestamp, t1 = pts.at(-1).timestamp;
+  const x = t => L + (t - t0) / (t1 - t0) * (W - L - R);
+  const y = v => P1[0] + (1 - (v - lo) / (hi - lo)) * (P1[1] - P1[0]);
+  const line = k => { let d = "", on = false; for (const p of pts){ if (!p[k]){ on = false; continue; } d += (on ? "L" : "M") + x(p.timestamp).toFixed(1) + " " + y(p[k]).toFixed(1); on = true; } return d; };
+  const both = pts.filter(d => d.avgHighPrice && d.avgLowPrice);
+  const band = both.length > 1 ? "M" + both.map(d => x(d.timestamp).toFixed(1) + " " + y(d.avgHighPrice).toFixed(1)).join("L") + "L" + [...both].reverse().map(d => x(d.timestamp).toFixed(1) + " " + y(d.avgLowPrice).toFixed(1)).join("L") + "Z" : "";
+  const bw = Math.max(.6, (W - L - R) / pts.length * .8);
+  const tick = (yy, label) => `<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="var(--line)" stroke-dasharray="2 3"/><text x="${L-6}" y="${yy+3}" text-anchor="end">${label}</text>`;
+  // margin panel
+  const ms = both.map(d => mg(r.id, d));
+  const mlo = Math.min(0, ...ms), mhi = Math.max(0, ...ms, 1);
+  const y2 = v => P2[0] + (1 - (v - mlo) / (mhi - mlo)) * (P2[1] - P2[0]);
+  const mbars = both.map((d, i) => { const a = y2(0), b = y2(ms[i]); return `<rect x="${(x(d.timestamp)-bw/2).toFixed(1)}" y="${Math.min(a,b).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(.5,Math.abs(b-a)).toFixed(1)}" fill="${ms[i]>=0?"var(--good)":"var(--bad)"}"/>`; }).join("");
+  // volume panel: instant-sells (your buys fill) under instant-buys (your sells fill)
+  const vmax = Math.max(1, ...pts.map(vol));
+  const y3 = v => P3[1] - v / vmax * (P3[1] - P3[0]);
+  const vbars = pts.map(d => { const xl = (x(d.timestamp)-bw/2).toFixed(1), a = d.lowPriceVolume||0, b = d.highPriceVolume||0;
+    return `<rect x="${xl}" y="${y3(a).toFixed(1)}" width="${bw.toFixed(1)}" height="${(P3[1]-y3(a)).toFixed(1)}" fill="var(--good)" opacity=".7"/><rect x="${xl}" y="${y3(a+b).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y3(a)-y3(a+b)).toFixed(1)}" fill="var(--gold)" opacity=".7"/>`; }).join("");
+  const fmt = t => new Date(t*1000).toLocaleString([], seriesStep === "5m" ? {hour:"numeric", minute:"2-digit"} : {month:"short", day:"numeric"});
+  const tm = (t0 + t1) / 2;
+  return `<svg class="chart" id="chartSvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Buy and sell price history, after-tax margin and volume">
+    ${[0, .5, 1].map(f => tick(y(lo + (hi-lo)*f), gp(Math.round(lo + (hi-lo)*f)))).join("")}
+    <path d="${band}" fill="var(--gold)" opacity=".12"/>
+    <line x1="${L}" x2="${W-R}" y1="${y(r.buy)}" y2="${y(r.buy)}" stroke="var(--good)" stroke-dasharray="5 4" opacity=".8"/>
+    <line x1="${L}" x2="${W-R}" y1="${y(r.sell)}" y2="${y(r.sell)}" stroke="var(--gold)" stroke-dasharray="5 4" opacity=".8"/>
+    <path d="${line("avgHighPrice")}" fill="none" stroke="var(--gold)" stroke-width="1.7"/>
+    <path d="${line("avgLowPrice")}" fill="none" stroke="var(--good)" stroke-width="1.7"/>
+    <text x="${L}" y="${P2[0]-7}" class="ptitle">MARGIN AFTER TAX</text>
+    ${tick(y2(mhi), gp(Math.round(mhi)))}${mlo < 0 ? tick(y2(mlo), gp(Math.round(mlo))) : ""}
+    <line x1="${L}" x2="${W-R}" y1="${y2(0)}" y2="${y2(0)}" stroke="var(--muted)"/><text x="${L-6}" y="${y2(0)+3}" text-anchor="end">0</text>
+    ${mbars}
+    <text x="${L}" y="${P3[0]-7}" class="ptitle">VOLUME</text>
+    <text x="${L-6}" y="${P3[0]+6}" text-anchor="end">${gp(vmax)}</text>
+    ${vbars}
+    <text x="${L}" y="${H-3}">${fmt(t0)}</text><text x="${x(tm)}" y="${H-3}" text-anchor="middle">${fmt(tm)}</text><text x="${W-R}" y="${H-3}" text-anchor="end">${fmt(t1)}</text>
+    <line id="xh" x1="0" x2="0" y1="${P1[0]}" y2="${P3[1]}" stroke="var(--fg)" opacity=".5" visibility="hidden"/>
+    <rect id="hit" x="${L}" y="0" width="${W-L-R}" height="${H}" fill="transparent"/>
+  </svg>`;
+}
+
+function hookHover(data, r){
+  const pts = data.filter(d => d.avgHighPrice || d.avgLowPrice);
+  const svg = $("#chartSvg"); if (!svg || pts.length < 2) return;
+  const {W, L, R} = CH, t0 = pts[0].timestamp, t1 = pts.at(-1).timestamp, out = $("#readout"), xh = svg.querySelector("#xh");
+  const fmt = t => new Date(t*1000).toLocaleString([], {month:"short", day:"numeric", hour:"numeric", minute:"2-digit"});
+  const show = e => {
+    const b = svg.getBoundingClientRect(), vx = (e.clientX - b.left) / b.width * W;
+    const t = t0 + (vx - L) / (W - L - R) * (t1 - t0);
+    let best = pts[0]; for (const p of pts) if (Math.abs(p.timestamp - t) < Math.abs(best.timestamp - t)) best = p;
+    const px = L + (best.timestamp - t0) / (t1 - t0) * (W - L - R);
+    xh.setAttribute("x1", px); xh.setAttribute("x2", px); xh.setAttribute("visibility", "visible");
+    const m = best.avgHighPrice && best.avgLowPrice ? mg(r.id, best) : null;
+    out.innerHTML = `<span>${fmt(best.timestamp)}</span><span>Buy <b class="bv">${best.avgLowPrice ? best.avgLowPrice.toLocaleString() : "–"}</b></span><span>Sell <b class="sv">${best.avgHighPrice ? best.avgHighPrice.toLocaleString() : "–"}</b></span><span>Margin <b class="${m>0?"pos":"neg"}">${m==null?"–":m.toLocaleString()}</b></span><span>Vol ${vol(best).toLocaleString()}</span>`;
+  };
+  const reset = () => { xh.setAttribute("visibility", "hidden"); out.innerHTML = nowReadout(r); };
+  svg.addEventListener("pointermove", show); svg.addEventListener("pointerdown", show); svg.addEventListener("pointerleave", reset);
+  reset();
+}
+function nowReadout(r){
+  return `<span>Now</span><span>Buy <b class="bv">${r.buy.toLocaleString()}</b></span><span>Sell <b class="sv">${r.sell.toLocaleString()}</b></span><span>Margin <b class="${r.margin>0?"pos":"neg"}">${r.margin.toLocaleString()}</b></span><span class="hint">Hover or drag the chart to read past prices</span>`;
+}
+
+/* plain-language read of the window */
+function analyze(data, r){
+  const both = data.filter(d => d.avgHighPrice && d.avgLowPrice);
+  if (both.length < 6) return `<p class="note">Too few trades in this window for a reliable read. Try a longer range.</p>`;
+  const lows = both.map(d => d.avgLowPrice), highs = both.map(d => d.avgHighPrice), mids = both.map(d => (d.avgLowPrice + d.avgHighPrice) / 2);
+  const ms = both.map(d => mg(r.id, d)), ts = both.map(d => d.timestamp), n = both.length;
+  const mt = avg(ts), mm = avg(mids);
+  const slope = ts.reduce((s, t, i) => s + (t - mt) * (mids[i] - mm), 0) / ts.reduce((s, t) => s + (t - mt) ** 2, 0);
+  const change = slope * (ts[n-1] - ts[0]) / mm * 100;
+  const cv = sd(mids) / mm * 100;
+  const held = ms.filter(m => m > 0).length / n * 100, medM = pct(ms, .5);
+  const buyPos = lows.filter(v => v <= r.buy).length / n * 100;
+  const pBuy = Math.round(pct(lows, .25)), pSell = Math.round(pct(highs, .75)), pMargin = pSell - tax(r.id, pSell) - pBuy;
+  const vs = data.map(vol), q = Math.floor(vs.length * .75);
+  const vRecent = avg(vs.slice(q)), vEarlier = avg(vs.slice(0, q)) || 1, vChange = (vRecent / vEarlier - 1) * 100;
+  const span = seriesStep === "5m" ? "the last ~30 hours" : seriesStep === "1h" ? "the last ~2 weeks" : "the last ~3 months";
+
+  let verdict, cls;
+  if (medM <= 0 || held < 40){ verdict = "Weak flip"; cls = "bad"; }
+  else if (change < -5){ verdict = "Falling market"; cls = "warn"; }
+  else if (held >= 70 && r.margin > 0){ verdict = "Solid flip"; cls = "good"; }
+  else { verdict = "Inconsistent margin"; cls = "warn"; }
+
+  const trendTxt = Math.abs(change) < 2 ? `Price has been flat over ${span} (${change >= 0 ? "+" : ""}${change.toFixed(1)}%).`
+    : change > 0 ? `Price is trending up over ${span}, about +${change.toFixed(1)}%. Buys may fill slower as sellers raise asks.`
+    : `Price is trending down over ${span}, about ${change.toFixed(1)}%. You risk selling below what you paid, so keep quantities small.`;
+  const marginTxt = `The after-tax margin was positive ${held.toFixed(0)}% of the time, with a typical margin of ${gp(Math.round(medM))} gp per item.` +
+    (r.margin > pct(ms, .9) ? ` Right now it's wider than usual (${gp(r.margin)}), which can mean a one-off trade or a stale price. Check the Age column before buying big.`
+    : r.margin < pct(ms, .25) ? ` Right now it's tighter than usual (${gp(r.margin)}), so the patient offers below may do better.` : "");
+  const posTxt = buyPos <= 25 ? `The current buy price is near the bottom of this window, a good entry.`
+    : buyPos >= 75 ? `The current buy price is near the top of this window, so you'd be buying high.`
+    : `The current buy price sits mid-range for this window.`;
+  const volTxt = Math.abs(vChange) < 15 ? `Trading volume is steady.` : vChange > 0 ? `Volume picked up ${vChange.toFixed(0)}% recently, so offers should fill faster.` : `Volume dropped ${Math.abs(vChange).toFixed(0)}% recently, so expect slower fills.`;
+  const volaTxt = cv > 8 ? `Price swings are large (${cv.toFixed(1)}% variation), so set offers wider and check often.` : "";
+
+  return `<div><span class="verdict ${cls}">${verdict}</span></div>
+    <div class="kv">
+      <div><b>Patient buy</b><span class="bv">${pBuy.toLocaleString()}</span></div>
+      <div><b>Patient sell</b><span class="sv">${pSell.toLocaleString()}</span></div>
+      <div><b>Patient margin</b><span class="${pMargin>0?"pos":"neg"}">${pMargin.toLocaleString()}</span></div>
+      <div><b>Range low–high</b><span>${gp(Math.min(...lows))}–${gp(Math.max(...highs))}</span></div>
+    </div>
+    <ul><li>${trendTxt}</li><li>${marginTxt}</li><li>${posTxt}</li><li>${volTxt}</li>${volaTxt ? `<li>${volaTxt}</li>` : ""}
+    <li>Patient offers use the 25th percentile of buy prices and the 75th percentile of sell prices in this window. They fill slower but keep more margin than buying and selling at the current prices.</li></ul>`;
+}
+
+/* board overview: top 10 by profit per 4h */
+function renderOverview(list){
+  const box = $("#ovBars"); if (!box) return;
+  const top = [...list].filter(r => r.score > 0).sort((a, b) => b.score - a.score).slice(0, 10);
+  if (!top.length){ box.innerHTML = `<p class="note">Nothing to chart with these filters.</p>`; return; }
+  const max = top[0].score;
+  box.innerHTML = top.map(r => `<button class="ov" data-id="${r.id}">
+      <span class="nm"><b>${esc(r.name)}</b><small>buy <span class="bv">${gp(r.buy)}</span> → sell <span class="sv">${gp(r.sell)}</span></small></span>
+      <span class="track"><span class="fill" style="width:${(r.score / max * 100).toFixed(1)}%"></span></span>
+      <span class="val ${coinClass(r.score)}">${gp(r.score)}</span></button>`).join("");
+}
+document.addEventListener("click", e => { const b = e.target.closest(".ov"); if (b) pick(b); });
+
+
+/* ---------- flip log ---------- */
+function logFlip(){
+  const r = items.find(i => i.id === selected); if (!r) return;
+  const buy = parseGp($("#cBuy").value), sell = parseGp($("#cSell").value), qty = parseGp($("#cQty").value);
+  if ([buy, sell, qty].some(isNaN) || qty <= 0) return;
+  const t = tax(r.id, sell) * qty;
+  log.unshift({id:r.id, name:r.name, qty, buy, sell, tax:t, profit:(sell - buy) * qty - t, at:Date.now()});
+  store.set("log", log); renderLog();
+}
+function renderLog(){
+  const total = log.reduce((s, f) => s + f.profit, 0), taxT = log.reduce((s, f) => s + f.tax, 0);
+  $("#logSum").innerHTML = log.length ? `<span>Flips: ${log.length}</span><span>Profit: <b class="${total>=0?"pos":"neg"}">${gp(total)}</b></span><span>Tax paid: ${gp(taxT)}</span>` : `<span class="note">Log a flip from the calculator to track your real profit here.</span>`;
+  $("#logRows").innerHTML = log.map((f, i) => `<tr><td>${esc(f.name)}</td><td data-k="Qty">${gp(f.qty)}</td><td data-k="Bought">${gp(f.buy)}</td><td data-k="Sold">${gp(f.sell)}</td><td data-k="Tax">${gp(f.tax)}</td><td data-k="Profit" class="${f.profit>=0?"pos":"neg"}">${gp(f.profit)}</td><td data-k="When">${new Date(f.at).toLocaleDateString([], {month:"short", day:"numeric"})}</td><td><button data-del="${i}" aria-label="Delete flip">✕</button></td></tr>`).join("");
+}
+$("#logRows").addEventListener("click", e => { const i = e.target.dataset.del; if (i != null){ log.splice(+i, 1); store.set("log", log); renderLog(); } });
+let clearArmed = false;
+$("#clearLog").onclick = e => {
+  if (!clearArmed){ clearArmed = true; e.target.textContent = "Press again to clear"; setTimeout(() => { clearArmed = false; e.target.textContent = "Clear log"; }, 3000); return; }
+  log = []; store.set("log", log); renderLog(); clearArmed = false; e.target.textContent = "Clear log";
+};
+
+/* ---------- events ---------- */
+const saved = store.get("filters", null);
+const fields = ["q","cash","minMargin","minRoi","minVol","maxAge","share","members","hideStale"];
+if (saved) fields.forEach(f => { if (saved[f] != null){ const el = $("#"+f); el.type === "checkbox" ? el.checked = saved[f] : el.value = saved[f]; } });
+fields.forEach(f => $("#"+f).addEventListener("input", () => {
+  store.set("filters", Object.fromEntries(fields.map(k => { const el = $("#"+k); return [k, el.type === "checkbox" ? el.checked : el.value]; })));
+  render();
+}));
+document.querySelectorAll(".presets button").forEach(b => b.onclick = () => {
+  sortKey = b.dataset.sort; sortDir = -1;
+  document.querySelectorAll(".presets button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  render();
+});
+document.querySelectorAll("th[data-col]").forEach(th => th.onclick = () => {
+  const c = th.dataset.col; sortDir = sortKey === c ? -sortDir : (c === "name" || c === "age" || c === "buy" ? 1 : -1); sortKey = c;
+  document.querySelectorAll(".presets button").forEach(x => x.setAttribute("aria-pressed", x.dataset.sort === c));
+  render();
+});
+document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => {
+  view = b.dataset.view; document.querySelectorAll("[data-view]").forEach(x => x.setAttribute("aria-selected", x === b)); render();
+});
+function pick(tr){ if (!tr) return; selected = +tr.dataset.id; render(); renderLedger(); if (innerWidth <= 1050) $("#ledger").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"}); }
+$("#rows").addEventListener("click", e => pick(e.target.closest("tr")));
+$("#rows").addEventListener("keydown", e => { if (e.key === "Enter") pick(e.target.closest("tr")); });
+$("#refresh").onclick = load;
+setInterval(() => { if ($("#auto").checked && !document.hidden && !demo) load(); }, 60000);
+
+load();
+</script>
+</body>
+</html>

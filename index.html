@@ -58,6 +58,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .seg button{border:0;border-radius:0;border-right:1px solid var(--line)}
 .seg button:last-child{border-right:0}
 .seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.spk{font:600 9px var(--f-ui);color:var(--warn);border:1px solid var(--warn);border-radius:3px;padding:0 3px;flex:none}
 .f2p{font:600 9px var(--f-ui);color:var(--good);border:1px solid var(--good);border-radius:3px;padding:0 3px;flex:none}
 .presets button[aria-pressed="true"]{background:var(--gold);color:var(--bg);border-color:var(--gold)}
 
@@ -166,7 +167,7 @@ tbody tr.sel{background:var(--gold-soft)}
     <label>Cash stack (gp)<input id="cash" inputmode="numeric" value="10m"></label>
     <label>Min margin after tax<input id="minMargin" inputmode="numeric" value="100"></label>
     <label>Min ROI %<input id="minRoi" type="number" step="0.1" value="1"></label>
-    <label>Min hourly volume<input id="minVol" type="number" value="50"></label>
+    <label>Min hourly volume (slower side)<input id="minVol" type="number" value="50"></label>
     <label>Max price age (min)<input id="maxAge" type="number" value="30"></label>
     <label>Fill share of 4h volume %<input id="share" type="number" value="25" min="1" max="100"></label>
     <label>Members<select id="members"><option value="all">All items</option><option value="f2p">F2P only</option><option value="p2p">Members only</option></select></label>
@@ -213,6 +214,7 @@ tbody tr.sel{background:var(--gold-soft)}
             <th data-col="vol">Vol/hr</th>
             <th data-col="limit">Limit</th>
             <th data-col="qty">Can buy</th>
+            <th data-col="fill">Est. fill</th>
             <th data-col="score">Profit/4h</th>
             <th data-col="age">Age</th>
           </tr></thead>
@@ -234,7 +236,8 @@ tbody tr.sel{background:var(--gold-soft)}
   </section>
 
   <p class="note">
-    Buy at = the latest instant-sell price (what you can usually buy for). Sell at = the latest instant-buy price.
+    Buy at and Sell at are suggested offers: the recent 5-minute average (1-hour if thin), never better than the latest trade, stepped 1 gp ahead of the queue. A single odd trade won't inflate the margin; items whose latest trade is far from the average get a SPIKE tag.
+    Est. fill is how long your buy offer should take if you catch your share of the instant-sells.
     Tax is the GE's 2% sell tax, rounded down, capped at 5m per item, and not charged on items under 50 gp or Old school bonds.
     Profit/4h assumes you fill the smaller of the buy limit, your cash stack, or your chosen share of four hours of volume.
     Prices from the <a href="https://prices.runescape.wiki" target="_blank" rel="noopener" style="color:var(--gold)">OSRS Wiki real-time prices API</a>.
@@ -276,6 +279,7 @@ function gp(n){
 }
 // OSRS stack colours: yellow under 100k, white to 10m, green above
 function coinClass(n){ const a = Math.abs(n); return a >= 1e7 ? "c-g" : a >= 1e5 ? "c-w" : "c-y"; }
+function fillTxt(h){ if (!isFinite(h)) return "–"; const m = h * 60; return m < 1 ? "<1m" : m < 60 ? Math.round(m) + "m" : (h < 10 ? h.toFixed(1) : Math.round(h)) + "h"; }
 function ago(sec){ if (sec == null) return "–"; const m = Math.round(sec/60); return m < 60 ? m + "m" : Math.round(m/60) + "h"; }
 function icon(m){ return m && m.icon ? "https://oldschool.runescape.wiki/images/" + encodeURIComponent(m.icon.replace(/ /g, "_")) : ""; }
 function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
@@ -290,12 +294,12 @@ async function load(){
   setStatus("", "Loading prices…");
   try{
     const needMap = !Object.keys(mapping).length;
-    const [map, latest, hour] = await Promise.all([
+    const [map, latest, hour, five] = await Promise.all([
       needMap ? getJSON("/mapping") : Promise.resolve(null),
-      getJSON("/latest"), getJSON("/1h")
+      getJSON("/latest"), getJSON("/1h"), getJSON("/5m")
     ]);
     if (map) mapping = Object.fromEntries(map.map(m => [m.id, m]));
-    build(latest.data, hour.data);
+    build(latest.data, hour.data, five.data);
     demo = false; $("#demoBanner").hidden = true;
     setStatus("live", "Live · updated " + new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}));
   }catch(e){
@@ -304,22 +308,32 @@ async function load(){
   }
   render();
 }
-function build(latest, hour){
+function build(latest, hour, five){
   const now = Date.now()/1000;
   items = [];
   for (const id in latest){
     const m = mapping[id]; if (!m) continue;
-    const L = latest[id], H = hour[id] || {};
+    const L = latest[id], H = hour[id] || {}, F = five[id] || {};
     if (!L.high || !L.low) continue;
-    items.push(makeRow(+id, m, L.low, L.high,
-      (H.highPriceVolume||0) + (H.lowPriceVolume||0),
-      now - Math.min(L.highTime||0, L.lowTime||0)));
+    // Reference = recent averages (5m if both sides traded, else 1h), not one trade
+    const ref = (F.avgLowPrice && F.avgHighPrice) ? F : H;
+    const refLow = ref.avgLowPrice || L.low, refHigh = ref.avgHighPrice || L.high;
+    // Realistic offers: don't assume you can buy below what buyers have been paying
+    // or sell above what sellers have been getting. Then step 1 gp ahead of the queue.
+    const buy = Math.max(L.low, Math.round(refLow)) + 1;
+    const sell = Math.min(L.high, Math.round(refHigh)) - 1;
+    const spike = L.low < refLow * 0.97 || L.high > refHigh * 1.03;
+    items.push(makeRow(+id, m, buy, sell, H.lowPriceVolume || 0, H.highPriceVolume || 0,
+      now - Math.min(L.highTime||0, L.lowTime||0), spike));
   }
 }
-function makeRow(id, m, buy, sell, vol, age){
+// buyVol: units instant-sold last hour (these fill YOUR buy offers)
+// sellVol: units instant-bought last hour (these fill YOUR sell offers)
+function makeRow(id, m, buy, sell, buyVol, sellVol, age, spike = false){
   const t = tax(id, sell);
   return {id, name:m.name, members:m.members, limit:m.limit || null, highalch:m.highalch, examine:m.examine, m,
-          buy, sell, tax:t, margin: sell - t - buy, roi: (sell - t - buy) / buy * 100, vol, age};
+          buy, sell, tax:t, margin: sell - t - buy, roi: (sell - t - buy) / buy * 100,
+          buyVol, sellVol, vol: buyVol + sellVol, flow: Math.min(buyVol, sellVol), age, spike};
 }
 function loadDemo(){
   demo = true; $("#demoBanner").hidden = false;
@@ -334,7 +348,7 @@ function loadDemo(){
   ];
   items = ex.map(([id,name,members,limit,buy,sell,vol]) => {
     const m = {id,name,members,limit,highalch:Math.round(buy*.4),examine:"Example row with made-up prices.",icon:""};
-    mapping[id] = mapping[id] || m; return makeRow(id, m, buy, sell, vol, 60*(5+id%20));
+    mapping[id] = mapping[id] || m; return makeRow(id, m, buy, sell, Math.round(vol/2), Math.round(vol/2), 60*(5+id%20));
   });
 }
 function setStatus(cls, text){ $("#dot").className = "dot " + cls; $("#statusText").textContent = text; }
@@ -348,17 +362,20 @@ function opts(){
     mem:$("#members").value, hideStale:$("#hideStale").checked};
 }
 function score(r, o){
-  const byVol = Math.floor(r.vol * 4 * o.share);
+  // the slower side (buying or selling) caps how much you can realistically flip
+  const byVol = Math.floor(r.flow * 4 * o.share);
   const byCash = Math.floor(o.cash / r.buy);
   const qty = Math.max(0, Math.min(r.limit ?? Infinity, byVol, byCash));
-  return {...r, qty, score: qty * r.margin};
+  // hours to fill the buy, assuming you catch your share of instant-sells
+  const fill = r.buyVol ? qty / (r.buyVol * o.share) : Infinity;
+  return {...r, qty, fill, score: qty * r.margin};
 }
 function visible(){
   const o = opts();
   let list = view === "watch" ? items.filter(r => watch.has(r.id)) : items;
   list = list.map(r => score(r, o));
   if (view === "all") list = list.filter(r =>
-    r.margin >= o.minMargin && r.roi >= o.minRoi && r.vol >= o.minVol && r.qty > 0 &&
+    r.margin >= o.minMargin && r.roi >= o.minRoi && r.flow >= o.minVol && r.qty > 0 &&
     (!o.hideStale || r.age <= o.maxAge));
   if (o.q) list = list.filter(r => r.name.toLowerCase().includes(o.q));
   if (o.mem === "f2p") list = list.filter(r => !r.members);
@@ -378,7 +395,7 @@ function render(){
   document.querySelectorAll("th").forEach(th => th.classList.toggle("sorted", th.dataset.col === sortKey));
   $("#rows").innerHTML = list.map(r => `
     <tr data-id="${r.id}" class="${selected===r.id?"sel":""}" tabindex="0">
-      <td class="name">${icon(r.m)?`<img src="${icon(r.m)}" alt="" loading="lazy">`:""}<span>${esc(r.name)}</span>${r.members?'<i class="mem">P2P</i>':'<i class="f2p">F2P</i>'}</td>
+      <td class="name">${icon(r.m)?`<img src="${icon(r.m)}" alt="" loading="lazy">`:""}<span>${esc(r.name)}</span>${r.members?'<i class="mem">P2P</i>':'<i class="f2p">F2P</i>'}${r.spike?'<i class="spk" title="Latest trade is far from the recent average">SPIKE</i>':""}</td>
       <td data-k="Buy at">${gp(r.buy)}</td>
       <td data-k="Sell at">${gp(r.sell)}</td>
       <td data-k="Tax">${gp(r.tax)}</td>
@@ -387,6 +404,7 @@ function render(){
       <td data-k="Vol/hr">${gp(r.vol)}</td>
       <td data-k="Limit">${r.limit?gp(r.limit):"?"}</td>
       <td data-k="Can buy">${gp(r.qty)}</td>
+      <td data-k="Est. fill" class="${r.fill>2?"stale":""}">${fillTxt(r.fill)}</td>
       <td data-k="Profit/4h" class="${coinClass(r.score)}">${gp(r.score)}</td>
       <td data-k="Age" class="${r.age>o.maxAge?"stale":""}">${ago(r.age)}</td>
     </tr>`).join("");
@@ -415,7 +433,9 @@ async function renderLedger(fetchSeries = true){
       <div><b>Tax per item</b><span>${r.tax.toLocaleString()}</span></div>
       <div><b>Margin per item</b><span class="${r.margin>0?"pos":"neg"}">${r.margin.toLocaleString()}</span></div>
       <div><b>Buy limit / 4h</b><span>${r.limit?r.limit.toLocaleString():"unknown"}</span></div>
-      <div><b>Volume last hour</b><span>${r.vol.toLocaleString()}</span></div>
+      <div><b>Sold to buyers / hr</b><span>${r.buyVol.toLocaleString()}</span></div>
+      <div><b>Bought from sellers / hr</b><span>${r.sellVol.toLocaleString()}</span></div>
+      <div><b>Est. time to fill buy</b><span>${fillTxt(r.fill)}</span></div>
       <div><b>High alch</b><span>${r.highalch?r.highalch.toLocaleString():"–"}</span></div>
       <div><b>Alch floor gap</b><span class="${alchGap>0?"pos":""}">${alchGap==null?"–":gp(alchGap)}</span></div>
     </div>
@@ -434,8 +454,8 @@ async function renderLedger(fetchSeries = true){
     <div>
       <b style="font:600 12px var(--f-ui);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)">Flip calculator</b>
       <div class="calc" style="margin-top:6px">
-        <label>Buy price<input id="cBuy" inputmode="numeric" value="${sameItem&&prevBuy?prevBuy:r.buy+1}"></label>
-        <label>Sell price<input id="cSell" inputmode="numeric" value="${sameItem&&prevSell?prevSell:Math.max(r.sell-1,1)}"></label>
+        <label>Buy price<input id="cBuy" inputmode="numeric" value="${sameItem&&prevBuy?prevBuy:r.buy}"></label>
+        <label>Sell price<input id="cSell" inputmode="numeric" value="${sameItem&&prevSell?prevSell:r.sell}"></label>
         <label>Quantity<input id="cQty" inputmode="numeric" value="${sameItem&&prevQty?prevQty:(r.qty||1)}"></label>
         <label>&nbsp;<button id="logIt" class="primary">Log this flip</button></label>
       </div>
@@ -661,7 +681,7 @@ document.querySelectorAll(".presets button").forEach(b => b.onclick = () => {
   render();
 });
 document.querySelectorAll("th[data-col]").forEach(th => th.onclick = () => {
-  const c = th.dataset.col; sortDir = sortKey === c ? -sortDir : (c === "name" || c === "age" || c === "buy" ? 1 : -1); sortKey = c;
+  const c = th.dataset.col; sortDir = sortKey === c ? -sortDir : (c === "name" || c === "age" || c === "buy" || c === "fill" ? 1 : -1); sortKey = c;
   document.querySelectorAll(".presets button").forEach(x => x.setAttribute("aria-pressed", x.dataset.sort === c));
   render();
 });

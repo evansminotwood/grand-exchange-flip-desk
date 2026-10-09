@@ -53,6 +53,12 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .controls .chk input{width:auto}
 
 .presets{display:flex;gap:8px;flex-wrap:wrap}
+.toolbar{display:flex;gap:10px 18px;flex-wrap:wrap;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-radius:0;border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.f2p{font:600 9px var(--f-ui);color:var(--good);border:1px solid var(--good);border-radius:3px;padding:0 3px;flex:none}
 .presets button[aria-pressed="true"]{background:var(--gold);color:var(--bg);border-color:var(--gold)}
 
 .main{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px;align-items:start}
@@ -163,15 +169,22 @@ tbody tr.sel{background:var(--gold-soft)}
     <label>Min hourly volume<input id="minVol" type="number" value="50"></label>
     <label>Max price age (min)<input id="maxAge" type="number" value="30"></label>
     <label>Fill share of 4h volume %<input id="share" type="number" value="25" min="1" max="100"></label>
-    <label>Members<select id="members"><option value="all">All items</option><option value="f2p">F2P only</option></select></label>
+    <label>Members<select id="members"><option value="all">All items</option><option value="f2p">F2P only</option><option value="p2p">Members only</option></select></label>
     <label class="chk"><input type="checkbox" id="hideStale" checked> Hide stale prices</label>
   </section>
 
+  <div class="toolbar">
+  <div class="seg" role="group" aria-label="Item type">
+    <button data-mem="all" aria-pressed="true">All items</button>
+    <button data-mem="f2p" aria-pressed="false">F2P</button>
+    <button data-mem="p2p" aria-pressed="false">Members</button>
+  </div>
   <div class="presets" role="group" aria-label="Ranking">
     <button data-sort="score" aria-pressed="true">Best profit per limit</button>
     <button data-sort="roi" aria-pressed="false">Highest ROI</button>
     <button data-sort="vol" aria-pressed="false">Most traded</button>
     <button data-sort="margin" aria-pressed="false">Biggest margin</button>
+  </div>
   </div>
 
   <section class="overview" aria-label="Top flips chart">
@@ -332,7 +345,7 @@ function opts(){
     minMargin:parseGp($("#minMargin").value) || 0, minRoi:parseFloat($("#minRoi").value) || 0,
     minVol:parseFloat($("#minVol").value) || 0, maxAge:(parseFloat($("#maxAge").value) || 1e9) * 60,
     share:Math.min(100, Math.max(1, parseFloat($("#share").value) || 25)) / 100,
-    f2p:$("#members").value === "f2p", hideStale:$("#hideStale").checked};
+    mem:$("#members").value, hideStale:$("#hideStale").checked};
 }
 function score(r, o){
   const byVol = Math.floor(r.vol * 4 * o.share);
@@ -348,7 +361,8 @@ function visible(){
     r.margin >= o.minMargin && r.roi >= o.minRoi && r.vol >= o.minVol && r.qty > 0 &&
     (!o.hideStale || r.age <= o.maxAge));
   if (o.q) list = list.filter(r => r.name.toLowerCase().includes(o.q));
-  if (o.f2p) list = list.filter(r => !r.members);
+  if (o.mem === "f2p") list = list.filter(r => !r.members);
+  else if (o.mem === "p2p") list = list.filter(r => r.members);
   list.sort((a,b) => {
     const x = a[sortKey], y = b[sortKey];
     const cmp = typeof x === "string" ? x.localeCompare(y) : (x ?? -Infinity) - (y ?? -Infinity);
@@ -364,7 +378,7 @@ function render(){
   document.querySelectorAll("th").forEach(th => th.classList.toggle("sorted", th.dataset.col === sortKey));
   $("#rows").innerHTML = list.map(r => `
     <tr data-id="${r.id}" class="${selected===r.id?"sel":""}" tabindex="0">
-      <td class="name">${icon(r.m)?`<img src="${icon(r.m)}" alt="" loading="lazy">`:""}<span>${esc(r.name)}</span>${r.members?'<i class="mem">P2P</i>':""}</td>
+      <td class="name">${icon(r.m)?`<img src="${icon(r.m)}" alt="" loading="lazy">`:""}<span>${esc(r.name)}</span>${r.members?'<i class="mem">P2P</i>':'<i class="f2p">F2P</i>'}</td>
       <td data-k="Buy at">${gp(r.buy)}</td>
       <td data-k="Sell at">${gp(r.sell)}</td>
       <td data-k="Tax">${gp(r.tax)}</td>
@@ -659,6 +673,11 @@ $("#rows").addEventListener("click", e => pick(e.target.closest("tr")));
 $("#rows").addEventListener("keydown", e => { if (e.key === "Enter") pick(e.target.closest("tr")); });
 $("#refresh").onclick = load;
 setInterval(() => { if ($("#auto").checked && !document.hidden && !demo) load(); }, 60000);
+
+function syncMem(){ const v = $("#members").value; document.querySelectorAll("[data-mem]").forEach(b => b.setAttribute("aria-pressed", b.dataset.mem === v)); }
+document.querySelectorAll("[data-mem]").forEach(b => b.onclick = () => { $("#members").value = b.dataset.mem; $("#members").dispatchEvent(new Event("input")); syncMem(); });
+$("#members").addEventListener("change", () => { $("#members").dispatchEvent(new Event("input")); syncMem(); });
+syncMem();
 
 load();
 </script>
